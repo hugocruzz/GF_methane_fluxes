@@ -29,18 +29,29 @@ This document describes the methodology for calculating air-sea methane (CH₄) 
 ### 1.2 Meteorological Data
 
 **2023: Narsaq Weather Station (`GF2023_weather_station_Nordasq.csv`)**
-- Land-based weather station
+- Station: ATMOS 41 Gen 2 All-in-One weather station (METER group, Pullman, USA)
+- Location: Narsaq Science Center, Greenland
+- Wind speed measurement height: 6.75 m above ground
 - Temporal resolution: 5-minute intervals
-- Wind speed measurement height: ~2 m above ground
 - Period: Summer months (June-September 2023)
 - Key parameter: Wind speed (m/s)
 
 **2024: Forel Weather Station (`GF2024_weather_station_forel.csv`)**
-- Ship-based weather station
+- Station: ATMOS 41 Gen 2 All-in-One weather station (METER group, Pullman, USA)
+- Location: R/V Forel (ship-based)
+- Wind speed measurement height: 6.75 m above deck
 - Temporal resolution: 5-minute intervals
-- Wind speed measurement height: 2-4 m above water surface
 - Period: Summer months (June-September 2024)
 - Key parameter: Wind speed (m/s)
+
+### 1.3 Atmospheric CH₄ Reference Data
+
+Atmospheric pCH₄ values were obtained from measurements at **Storhofdi, Vestmannaeyjar, Iceland** (63.400°N, 20.288°W, altitude: 118 m):
+
+- **2023**: 1986.65 ppb (average of June-September, n=4 measurements)
+- **2024**: 1995.85 ppb (average of June-September, n=4 measurements)
+
+**Data source**: NOAA Global Monitoring Laboratory
 
 ---
 
@@ -49,147 +60,155 @@ This document describes the methodology for calculating air-sea methane (CH₄) 
 ### 2.1 Surface Water Sample Selection
 
 For each sampling station, surface water measurements were selected using the **minimum depth criterion**:
-- The sample with the minimum depth at each station was selected (typically ~2-3 m)
-- This approach provides the most representative surface concentration for air-sea exchange
-- Only stations with complete data (CH₄, temperature, salinity) were retained
+- The sample with the minimum depth at each station was selected (typically 2-3 m)
+- **Depth filter**: Only samples with depth ≤ 5 m were included to ensure representativeness of the air-sea interface
+- Stations with missing data (CH₄, temperature, or salinity) were excluded
+- This approach provides the most representative surface concentration for air-sea gas exchange calculations
 
 ### 2.2 Wind Speed Averaging
 
 Wind speed data were temporally matched to each water sampling event:
 - **Averaging window**: 24 hours preceding each station sampling time
-- **Rationale**: Longer-term wind speed averages better represent the integrated gas exchange process and smooth out short-term variability
-- **Number of records**: Typically ~288 measurements per station (24 hours × 12 measurements/hour)
+- **Rationale**: The gas transfer velocity is calculated using the monthly average of the squared hourly wind speed. This accounts for the variability of wind speed and allows us to capture the enhanced impact of high wind speed on air-sea exchange due to the quadratic relationship between gas transfer velocity and wind speed.
+- **Number of records**: Typically 288-289 measurements per station (24 hours × ~12 measurements/hour)
 
 ### 2.3 Wind Speed Height Correction
 
-Wind speeds measured at non-standard heights were corrected to the standard 10-m reference height using a **logarithmic wind profile** assumption:
+Wind speed was obtained from the meteorological station ATMOS 41 Gen 2 All-in-One weather station (METER group, Pullman, USA) at the Narsaq science center at 6.75m height. The wind speed at 10m height, $U_{10}$, can be calculated using:
 
-$$u_{10} = u_z \frac{\ln(10/z_0)}{\ln(z/z_0)}$$
+$$U_{10} = U_{6.75} \times \left(\frac{10}{6.75}\right)^{\alpha}$$
+
+**Equation (3)**
 
 Where:
-- $u_{10}$ = wind speed at 10 m height (m/s)
-- $u_z$ = measured wind speed at height $z$ (m/s)
-- $z$ = measurement height (m): 2 m for 2023 (Narsaq), 3 m for 2024 (Forel)
-- $z_0$ = roughness length for open water = 0.0002 m
-
-**Reference**: Garratt (1992), *The Atmospheric Boundary Layer*
+- $U_{10}$ = wind speed at 10 m height (m/s)
+- $U_{6.75}$ = measured wind speed at 6.75 m height (m/s)
+- $\alpha$ = 0.20 (power law exponent for relatively rough surface adapted for rural-suburban area)
 
 **Assumptions**:
 - Neutral atmospheric stability
-- Open water surface roughness
-- Valid for moderate wind speeds (< 15 m/s)
+- Rural-suburban surface roughness characteristics
+- Valid for moderate wind speeds
 
 ---
 
-## 3. Gas Transfer Velocity Calculation
+## 3. CH₄ Saturation and Flux Calculations
 
-### 3.1 Schmidt Number
+### 3.1 CH₄ Saturation Level
 
-The Schmidt number (Sc) for CH₄ in seawater is temperature-dependent and calculated using:
+The saturation level of dissolved methane was calculated using the **solubility constant equation from Wiesenburg and Guinasso (1979)** and atmospheric pCH₄ measured on board the research vessel during the 2024 Greenfjord expedition. 
 
-$$Sc = A + BT + CT^2 + DT^3$$
+Atmospheric CH₄ was considered according to measured concentrations at **Storhofdi, Vestmannaeyjar, Iceland** (63.400°N, 20.288°W, alt. 118m):
+- June to Sept. 2023: 1986.65 ppb (n=4)
+- June to Sept. 2024: 1995.85 ppb (n=4)
 
-Where:
-- $T$ = water temperature (°C)
-- $A = 1897.8$
-- $B = -114.28$
-- $C = 3.2902$
-- $D = -0.039061$
+#### 3.1.1 Henry's Law Constant (Wiesenburg & Guinasso, 1979)
 
-**Reference**: Wanninkhof (2014), *Limnology and Oceanography: Methods*, 12(6), 351-362
+The Henry's law constant for CH₄ in seawater is calculated as:
 
-### 3.2 Gas Transfer Velocity
-
-The gas transfer velocity was calculated using the **Wanninkhof (2014) parameterization**:
-
-$$k_{600} = 0.251 \times u_{10}^2$$
-
-Normalized to the in-situ Schmidt number:
-
-$$k = k_{600} \left(\frac{Sc}{600}\right)^{-0.5}$$
+$$\ln(C) = A_1 + A_2 \left(\frac{100}{T}\right) + A_3 \ln\left(\frac{T}{100}\right) + S \left[B_1 + B_2 \left(\frac{T}{100}\right) + B_3 \left(\frac{T}{100}\right)^2\right]$$
 
 Where:
-- $k$ = gas transfer velocity (cm/hr)
-- $k_{600}$ = reference gas transfer velocity at Sc = 600
-- $u_{10}$ = wind speed at 10 m (m/s)
-- $Sc$ = Schmidt number (dimensionless)
-
-**Units conversion**: $k$ (m/day) = $k$ (cm/hr) × 0.01 × 24
-
-**Reference**: Wanninkhof, R. (2014). Relationship between wind speed and gas exchange over the ocean revisited. *Limnology and Oceanography: Methods*, 12(6), 351-362.
-
-**Alternative parameterization available**: Wanninkhof (1992) using coefficient 0.31 instead of 0.251
-
----
-
-## 4. Equilibrium CH₄ Concentration
-
-### 4.1 Henry's Law Constant
-
-The Henry's law constant for CH₄ in seawater was calculated with temperature and salinity corrections:
-
-$$K_H(T,S) = K_{H,0} \exp\left[d\ln(K_H)/d(1/T) \times \left(\frac{1}{T} - \frac{1}{T_0}\right)\right] \times \exp(-0.015 \times S)$$
-
-Where:
-- $K_H$ = Henry's law constant (mol/(L·atm))
-- $K_{H,0}$ = 1.3 × 10⁻³ mol/(L·atm) at 25°C
-- $d\ln(K_H)/d(1/T)$ = 1700 K (temperature dependence coefficient)
-- $T$ = water temperature (K)
-- $T_0$ = 298.15 K (25°C reference temperature)
+- $C$ = solubility in ml(STP)/L/atm
+- $T$ = temperature (Kelvin)
 - $S$ = salinity (PSU)
-- 0.015 = empirical salinity correction factor
+- Coefficients (from Wiesenburg & Guinasso, 1979):
+  - $A_1 = -68.8862$
+  - $A_2 = 101.4956$
+  - $A_3 = 28.7314$
+  - $B_1 = -0.076146$
+  - $B_2 = 0.043970$
+  - $B_3 = -0.0068672$
+
+The Henry's law constant is then:
+
+$$K_H = \frac{\exp[\ln(C)] \times 1000}{22414}$$
+
+Units: mol/(L·atm)
+
+#### 3.1.2 Equilibrium CH₄ Concentration
+
+$$\text{CH}_4_{\text{equ}} = K_H \times P_{\text{CH}_4} \times 10^9$$
+
+Where:
+- $\text{CH}_4_{\text{equ}}$ = air equilibrated seawater CH₄ concentration (nM)
+- $K_H$ = Henry's law constant (mol/(L·atm))
+- $P_{\text{CH}_4}$ = atmospheric CH₄ partial pressure (atm)
+- $10^9$ = conversion factor from mol/L to nM
 
 **Reference**: Wiesenburg & Guinasso (1979), *Journal of Chemical and Engineering Data*, 24(4), 356-360
 
-### 4.2 Atmospheric Equilibrium Concentration
+### 3.2 Schmidt Number
 
-The CH₄ concentration at equilibrium with the atmosphere was calculated using:
+The Schmidt number (Sc) for CH₄ in seawater was calculated following **Vogt et al. (2023)** with salinity correction based on **Jähne et al. (1987)** and **Manning & Nicholson (2022)**:
 
-$$C_{sat} = K_H \times P_{CH_4} \times 10^9$$
+$$Sc_{\text{fresh}} = A + BT + CT^2 + DT^3$$
 
-Where:
-- $C_{sat}$ = saturation concentration (nM)
-- $K_H$ = Henry's law constant (mol/(L·atm))
-- $P_{CH_4}$ = atmospheric CH₄ partial pressure = 1.9 × 10⁻⁶ atm (≈1.9 ppm global average)
-- $10^9$ = conversion factor from mol/L to nmol/L
-
-**Note**: Atmospheric CH₄ concentration assumed constant at 1.9 ppm based on recent global averages
-
----
-
-## 5. Methane Flux Calculation
-
-### 5.1 Concentration Gradient
-
-The air-sea concentration difference was calculated as:
-
-$$\Delta C = C_{water} - C_{sat}$$
+$$Sc = Sc_{\text{fresh}} \times (1 + 0.0085 \times S)$$
 
 Where:
-- $\Delta C$ = concentration gradient (nM)
-- $C_{water}$ = measured CH₄ concentration in surface water (nM)
-- $C_{sat}$ = atmospheric equilibrium concentration (nM)
+- $T$ = water temperature (°C)
+- $S$ = salinity (PSU)
+- Coefficients (from Wanninkhof, 2014):
+  - $A = 1897.8$
+  - $B = -114.28$
+  - $C = 3.2902$
+  - $D = -0.039061$
+- Salinity correction factor: 0.0085 (Jähne et al., 1987)
 
-**Positive values** indicate supersaturation (outgassing from water to air)
+**References**: 
+- Vogt et al. (2023)
+- Jähne et al. (1987)
+- Manning & Nicholson (2022)
+- Wanninkhof (2014), *Limnology and Oceanography: Methods*, 12(6), 351-362
 
-### 5.2 Flux Equation
+### 3.3 Gas Transfer Velocity
 
-The methane flux was calculated using Fick's first law of diffusion:
+The gas transfer velocity ($k$) is calculated based on **(Fay et al., 2021; Ho et al., 2006; Jacobs et al., 1999; Kuss et al., 2004; Nightingale et al., 2000; Wanninkhof, 2014)**:
 
-$$F = k \times \Delta C$$
+$$k = a \times U_{10}^2 \times \left(\frac{Sc}{660}\right)^{-0.5}$$
+
+**Equation (2)**
 
 Where:
-- $F$ = CH₄ flux (μmol/(m²·day))
+- $k$ = gas transfer velocity (cm/hr)
+- $a$ = coefficient parametrization (0.251 for Wanninkhof, 2014)
+- $U_{10}$ = 10m wind speed (m/s)
+- $Sc$ = Schmidt number (dimensionless)
+- 660 = reference Schmidt number for CO₂ in seawater at 20°C
+
+**Units conversion to m/day**: 
+$$k_{\text{m/day}} = k_{\text{cm/hr}} \times 0.01 \times 24$$
+
+### 3.4 Methane Sea-Air Flux
+
+The methane sea-air flux ($F$) was calculated using the **bulk flux equation (Wanninkhof, 2014)**:
+
+$$F = k \times (\text{CH}_4_{\text{measured}} - \text{CH}_4_{\text{equ}})$$
+
+**Equation (1)**
+
+Where:
+- $F$ = CH₄ flux (μmol/m²/day), positive values indicate sea-to-air flux
 - $k$ = gas transfer velocity (m/day)
-- $\Delta C$ = concentration gradient (nmol/L = nM)
+- $\text{CH}_4_{\text{measured}}$ = concentration in water (nM)
+- $\text{CH}_4_{\text{equ}}$ = air equilibrated seawater CH₄ concentration (nM)
 
-**Units**: 
-- Input: $k$ (m/day) × $\Delta C$ (nM) = nmol/(m²·day)
-- Output: $F$ (μmol/(m²·day)) = nmol/(m²·day) / 1000
+**Unit analysis**:
+```
+k [m/day] × ΔC [nM] = k [m/day] × ΔC [nmol/L]
+                     = k [m/day] × ΔC [nmol/L] × (1000 L/m³)
+                     = nmol/m²/day × 1000
+                     = μmol/m²/day (numerically equivalent to nmol/m²/day)
+```
+
+The volume conversion (L to m³) exactly cancels the unit prefix conversion (nmol to μmol).
 
 **Sign convention**: Positive flux = emission from water to atmosphere
 
-**Reference**: Liss & Slater (1974), *Nature*, 247, 181-184
+---
+
+## 4. Implementation and Results
 
 ---
 
