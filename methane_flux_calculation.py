@@ -49,8 +49,8 @@ SC_B = -114.28
 SC_C = 3.2902
 SC_D = -0.039061
 
-# Reference Schmidt number for normalization
-SC_600 = 600
+# Reference Schmidt number for CO2 at 20°C (used for normalization)
+SC_660 = 660
 
 # Henry's law constant for CH4 (mol/L/atm) at 25°C
 # Temperature dependent: KH = KH0 * exp[d(ln(KH))/d(1/T) * (1/T - 1/T0)]
@@ -163,16 +163,16 @@ def gas_transfer_velocity_wanninkhof(u10, Sc, method='wanninkhof2014'):
     over the ocean revisited. Limnology and Oceanography: Methods, 12(6), 351-362.
     """
     if method == 'wanninkhof2014':
-        # k600 = 0.251 * u10^2 * (Sc/600)^-0.5  [cm/hr]
-        k600 = 0.251 * u10**2
+        # k660 = 0.251 * u10^2 * (Sc/660)^-0.5  [cm/hr]
+        k660 = 0.251 * u10**2
     elif method == 'wanninkhof1992':
-        # k600 = 0.31 * u10^2 * (Sc/600)^-0.5  [cm/hr]
-        k600 = 0.31 * u10**2
+        # k660 = 0.31 * u10^2 * (Sc/660)^-0.5  [cm/hr]
+        k660 = 0.31 * u10**2
     else:
         raise ValueError("Method must be 'wanninkhof2014' or 'wanninkhof1992'")
     
     # Normalize to actual Schmidt number
-    k = k600 * (Sc / SC_600)**(-0.5)
+    k = k660 * (Sc / SC_660)**(-0.5)
     
     return k
 
