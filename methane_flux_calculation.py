@@ -27,7 +27,7 @@ References:
 - Wiesenburg & Guinasso (1979), J. Chem. Eng. Data
 - Vogt et al. (2023), Jähne et al. (1987), Manning & Nicholson (2022)
 
-Author: Physicist Oceanographer
+Author: Hugo Cruz
 Date: November 2025
 """
 
