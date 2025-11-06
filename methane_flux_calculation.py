@@ -179,62 +179,100 @@ def gas_transfer_velocity_wanninkhof(u10, Sc, method='wanninkhof2014'):
 
 def henry_law_ch4(temperature_celsius, salinity_psu):
     """
-    Calculate Henry's law constant for CH4 in seawater.
+    Calculate CH4 solubility in seawater using Wiesenburg & Guinasso (1979) formulation.
+    
+    This function implements the Bunsen solubility coefficient for methane in seawater,
+    accounting for temperature and salinity effects.
     
     Parameters:
     -----------
     temperature_celsius : float or array
-        Water temperature (°C)
+        Water temperature [°C]
     salinity_psu : float or array
-        Salinity (PSU)
+        Practical salinity [PSU or ppt]
         
     Returns:
     --------
     KH : float or array
-        Henry's law constant (mol/(L·atm))
+        Henry's law constant [mol/(L·atm)]
+        Represents the equilibrium concentration of CH4 in water per unit partial pressure
         
     Reference:
     ----------
-    Wiesenburg & Guinasso (1979) with salinity correction
+    Wiesenburg, D.A. and Guinasso, N.L. (1979). Equilibrium solubilities of methane, 
+    carbon monoxide, and hydrogen in water and sea water. J. Chem. Eng. Data, 24(4), 356-360.
+    
+    Physical Validity:
+    ------------------
+    - Temperature dependence: KH increases with decreasing temperature (higher solubility in cold water)
+    - Salinity dependence: KH decreases with increasing salinity (salting-out effect)
+    - Typical values at 20°C, S=35 PSU: KH ≈ 1.3 × 10⁻³ mol/(L·atm)
+    
+    Notes:
+    ------
+    - Original Wiesenburg & Guinasso equation gives ln(C) where C is in ml(STP) gas / L solution / atm
+    - Conversion factor: 1 mole of ideal gas at STP = 22.414 L = 22,414 ml
+    - Unit conversion: C [ml(STP)/L/atm] ÷ 22.414 [L/mol] = KH [mol/L/atm]
+    - Final units: mol/L/atm (equivalent to M/atm or mol·L⁻¹·atm⁻¹)
     """
-    T_kelvin = temperature_celsius + 273.15
-    T0_kelvin = 298.15  # 25°C reference
-    
-    # Temperature dependence
-    KH = KH_25C * np.exp(D_LN_KH_DT * (1/T_kelvin - 1/T0_kelvin))
-    
-    # Salinity correction (empirical)
-    # KH(S) = KH(0) * exp(-S * correction_factor)
-    salinity_correction = np.exp(-0.0150 * salinity_psu)
-    KH = KH * salinity_correction
+    T = temperature_celsius + 273.15  # Convert to Kelvin [K]
+
+    # Coefficients from Wiesenburg & Guinasso (1979), Table IV
+    # These apply to ln(C) where C is in ml(STP)/L/atm
+    A1, A2, A3 = -68.8862, 101.4956, 28.7314
+    B1, B2, B3 = -0.076146, 0.043970, -0.0068672
+
+    # Calculate ln(C) using the empirical formulation
+    # Result: ln(C) in units of ml(STP) gas / L solution / atm
+    lnC_ml = (A1 +
+              A2 * (100.0 / T) +
+              A3 * np.log(T / 100.0) +
+              salinity_psu *
+              (B1 + B2 * (T / 100.0) + B3 * (T / 100.0) ** 2))
+
+    # Convert from ml(STP)/L/atm to mol/L/atm
+    # C [ml(STP)/L/atm] × (1000 ml/L) / (22414 ml(STP)/mol) = KH [mol/L/atm]
+    # Simplified: C / 22.414 = KH
+    KH = np.exp(lnC_ml) * 1000.0 / 22_414.0  # [mol/(L·atm)]
     
     return KH
 
 
-def calculate_ch4_saturation_concentration(temperature_celsius, salinity_psu, 
-                                           atm_ch4_atm):
+def calculate_ch4_saturation_concentration(temperature_celsius, salinity_psu, atm_ch4_atm):
     """
-    Calculate CH4 concentration at equilibrium with atmosphere.
+    Calculate CH4 equilibrium (saturation) concentration in seawater based on 
+    atmospheric partial pressure using Henry's Law.
+    
+    Henry's Law: C_aq = KH × P_gas
+    where C_aq is the dissolved concentration and P_gas is the partial pressure.
     
     Parameters:
     -----------
     temperature_celsius : float or array
-        Water temperature (°C)
+        Water temperature [°C]
     salinity_psu : float or array
-        Salinity (PSU)
+        Practical salinity [PSU or ppt]
     atm_ch4_atm : float
-        Atmospheric CH4 partial pressure (atm)
+        Atmospheric CH4 partial pressure [atm]
+        (e.g., 1986 ppb = 1986×10⁻⁹ atm)
         
     Returns:
     --------
-    C_sat : float or array
-        Saturation concentration (nmol/L or nM)
+    C_sat_nM : float or array
+        CH4 equilibrium concentration in seawater [nM]
+        (nanomolar = nmol/L)
+        
+    Notes:
+    ------
+    Unit conversion chain:
+    - KH [mol/L/atm] × P [atm] = C [mol/L] 
+    - C [mol/L] × 10⁹ [nmol/mol] = C [nmol/L] = C [nM]
     """
-    KH = henry_law_ch4(temperature_celsius, salinity_psu)
-    # C = KH * P, convert from mol/L to nmol/L
-    C_sat_nM = KH * atm_ch4_atm * 1e9
+    if salinity_psu<0:
+        return np.nan
+    KH = henry_law_ch4(temperature_celsius, salinity_psu)  # [mol/L/atm]
+    C_sat_nM = KH * atm_ch4_atm * 1e9  # [mol/L] → [nM]
     return C_sat_nM
-
 
 def calculate_methane_flux(C_water_nM, temperature_celsius, salinity_psu, 
                           u10_ms, atm_ch4_atm, atm_ch4_ppb):
@@ -290,10 +328,19 @@ def calculate_methane_flux(C_water_nM, temperature_celsius, salinity_psu,
     k_m_day = k_cm_hr * 0.01 * 24
     
     # Calculate flux: F = k * ΔC
-    # ΔC in nM (nmol/L), k in m/day
-    # F = k (m/day) * ΔC (nmol/L) = nmol/(m²·day)
-    # Convert to μmol/(m²·day): divide by 1000
-    flux_umol_m2_day = k_m_day * delta_C_nM / 1000
+    # Unit analysis:
+    #   k [m/day] × ΔC [nM] = k [m/day] × ΔC [nmol/L]
+    #   
+    #   Convert: k [m/day] × ΔC [nmol/L] × (1000 L/m³) = nmol/m²/day × 1000
+    #          = nmol/m²/day × (L to m³ conversion)
+    #   
+    #   Result: nmol/m²/day (numerically) = μmol/m²/day (same value!)
+    #   
+    #   Why? Because 1 nM = 1 nmol/L and the volume conversion (×1000 L/m³)
+    #   exactly cancels the unit prefix conversion from nmol to μmol (÷1000)
+    #
+    # CORRECTED: No division needed - the units work out directly!
+    flux_umol_m2_day = k_m_day * delta_C_nM  # [μmol/m²/day]
     
     return flux_umol_m2_day, C_sat_nM, delta_C_nM, k_cm_hr, Sc, atm_ch4_ppb
 
@@ -320,8 +367,29 @@ def load_gf2023_data(filepath):
     print("LOADING 2023 DATA")
     print("="*70)
     
-    # Read CSV with semicolon delimiter and proper encoding
-    df = pd.read_csv(filepath, sep=';', decimal=',', encoding='latin-1')
+    # Try different encodings to find the right one
+    encodings_to_try = ['latin-1', 'cp1252', 'iso-8859-1']
+    df = None
+    
+    for encoding in encodings_to_try:
+        try:
+            df = pd.read_csv(filepath, sep=';', decimal=',', encoding=encoding)
+            # Check if we got reasonable column names (no � characters)
+            if not any('�' in col for col in df.columns):
+                print(f"Successfully loaded with {encoding} encoding")
+                break
+        except:
+            continue
+    
+    # If still not loaded, use latin-1 as fallback
+    if df is None:
+        df = pd.read_csv(filepath, sep=';', decimal=',', encoding='latin-1')
+    
+    # Clean up any remaining encoding issues in column names
+    df.columns = df.columns.str.replace('�', 'μ')
+    df.columns = df.columns.str.replace('ï¿½', 'μ')
+    df.columns = df.columns.str.replace('Âµ', 'μ')
+    df.columns = df.columns.str.replace('Âº', '°')
     
     # Parse datetime
     df['datetime'] = pd.to_datetime(
@@ -330,11 +398,28 @@ def load_gf2023_data(filepath):
     )
     
     # Convert numeric columns to proper types (handle comma decimal separator)
-    numeric_columns = ['Depth (m)', 'CH4 (nM)', 'CH4 saturation', 'Temperature (°C)', 
-                       'Salinity (PSU)', 'NO3NO2 (µM)', 'NO2 (µM)']
+    numeric_columns = ['Depth (m)', 'CH4 (nM)', 'CH4 saturation', 'Temperature (μC)', 
+                       'Salinity (PSU)', 'NO3NO2 (μM)', 'NO2 (μM)']
+    # Also try with ° symbol
+    if 'Temperature (°C)' in df.columns:
+        numeric_columns.append('Temperature (°C)')
+    if 'NO3NO2 (µM)' in df.columns:
+        numeric_columns.append('NO3NO2 (µM)')
+    if 'NO2 (µM)' in df.columns:
+        numeric_columns.append('NO2 (µM)')
     for col in numeric_columns:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # Standardize column names for easier access
+    # Map common variations to standard names
+    column_mapping = {
+        'Temperature (μC)': 'Temperature (°C)',
+        'Temperature (Âº C)': 'Temperature (°C)',
+        'NO3NO2 (μM)': 'NO3NO2 (µM)',
+        'NO2 (μM)': 'NO2 (µM)'
+    }
+    df.rename(columns=column_mapping, inplace=True)
     
     # Filter for minimum depth at each station (closest to 2m)
     # Group by station and get row with minimum depth
@@ -343,6 +428,7 @@ def load_gf2023_data(filepath):
     print(f"\nTotal stations: {len(df_surface)}")
     print(f"Date range: {df_surface['datetime'].min()} to {df_surface['datetime'].max()}")
     print(f"\nSurface depths (m): {df_surface['Depth (m)'].values}")
+    print(f"\nColumn names: {list(df_surface.columns)}")
     
     return df_surface
 
@@ -365,8 +451,30 @@ def load_gf2024_data(filepath):
     print("LOADING 2024 DATA")
     print("="*70)
     
-    # Read CSV with semicolon delimiter
-    df = pd.read_csv(filepath, sep=';', decimal=',', encoding='latin-1')
+    # Try different encodings to find the right one
+    encodings_to_try = ['latin-1', 'cp1252', 'iso-8859-1']
+    df = None
+    
+    for encoding in encodings_to_try:
+        try:
+            df = pd.read_csv(filepath, sep=';', decimal=',', encoding=encoding)
+            # Check if we got reasonable column names (no � characters)
+            if not any('�' in col for col in df.columns):
+                print(f"Successfully loaded with {encoding} encoding")
+                break
+        except:
+            continue
+    
+    # If still not loaded, use latin-1 as fallback
+    if df is None:
+        df = pd.read_csv(filepath, sep=';', decimal=',', encoding='latin-1')
+    
+    # Clean up any remaining encoding issues in column names
+    df.columns = df.columns.str.replace('�', 'μ')
+    df.columns = df.columns.str.replace('ï¿½', 'μ')
+    df.columns = df.columns.str.replace('Âµ', 'μ')
+    df.columns = df.columns.str.replace('Âº', '°')
+    
     #drop first line
     df = df.drop(index=0).reset_index(drop=True)
     # Parse datetime
@@ -383,12 +491,23 @@ def load_gf2024_data(filepath):
             df[col] = df[col].str.replace(',', '.')
             df[col] = pd.to_numeric(df[col], errors='coerce')
     
+    # Standardize column names for easier access
+    # Map common variations to standard names
+    column_mapping = {
+        'Temperature (μC)': 'Temperature',
+        'Temperature (Âº C)': 'Temperature',
+        'NO3+NO2 (μM)': 'NO3+NO2 ',
+        'NO2 (μM)': 'NO2 '
+    }
+    df.rename(columns=column_mapping, inplace=True)
+    
     # Filter for minimum depth at each station (closest to 2m)
     df_surface = df.loc[df.groupby('Station')['depth '].idxmin()]
     
     print(f"\nTotal stations: {len(df_surface)}")
     print(f"Date range: {df_surface['datetime'].min()} to {df_surface['datetime'].max()}")
     print(f"\nSurface depths (m): {df_surface['depth '].values}")
+    print(f"\nColumn names: {list(df_surface.columns)}")
     
     return df_surface
 
@@ -410,8 +529,31 @@ def load_weather_narsaq_2023(filepath):
     print("\n" + "="*70)
     print("LOADING NARSAQ WEATHER STATION DATA (2023)")
     print("="*70)
-    # Skip the header rows (first 2 rows are empty or header)
-    df = pd.read_csv(filepath, sep=';', skiprows=2, decimal=',', encoding='latin-1')
+    
+    # Try different encodings to find the right one
+    encodings_to_try = ['latin-1', 'cp1252', 'iso-8859-1']
+    df = None
+    
+    for encoding in encodings_to_try:
+        try:
+            df = pd.read_csv(filepath, sep=';', skiprows=2, decimal=',', encoding=encoding)
+            # Check if we got reasonable column names (no � characters)
+            if not any('�' in col for col in df.columns):
+                print(f"Successfully loaded with {encoding} encoding")
+                break
+        except:
+            continue
+    
+    # If still not loaded, use latin-1 as fallback
+    if df is None:
+        df = pd.read_csv(filepath, sep=';', skiprows=2, decimal=',', encoding='latin-1')
+    
+    # Clean up any remaining encoding issues in column names
+    df.columns = df.columns.str.replace('�', 'μ')
+    df.columns = df.columns.str.replace('ï¿½', 'μ')
+    df.columns = df.columns.str.replace('Âµ', 'μ')
+    df.columns = df.columns.str.replace('Âº', '°')
+    
     #Drop first line
     df = df.drop(index=0).reset_index(drop=True)
     # Parse datetime
@@ -448,8 +590,30 @@ def load_weather_forel_2024(filepath):
     print("LOADING FOREL WEATHER STATION DATA (2024)")
     print("="*70)
     
-    # Skip the header rows
-    df = pd.read_csv(filepath, sep=';', skiprows=2, decimal=',', encoding='latin-1')
+    # Try different encodings to find the right one
+    encodings_to_try = ['latin-1', 'cp1252', 'iso-8859-1']
+    df = None
+    
+    for encoding in encodings_to_try:
+        try:
+            df = pd.read_csv(filepath, sep=';', skiprows=2, decimal=',', encoding=encoding)
+            # Check if we got reasonable column names (no � characters)
+            if not any('�' in col for col in df.columns):
+                print(f"Successfully loaded with {encoding} encoding")
+                break
+        except:
+            continue
+    
+    # If still not loaded, use latin-1 as fallback
+    if df is None:
+        df = pd.read_csv(filepath, sep=';', skiprows=2, decimal=',', encoding='latin-1')
+    
+    # Clean up any remaining encoding issues in column names
+    df.columns = df.columns.str.replace('�', 'μ')
+    df.columns = df.columns.str.replace('ï¿½', 'μ')
+    df.columns = df.columns.str.replace('Âµ', 'μ')
+    df.columns = df.columns.str.replace('Âº', '°')
+    
     #Drop first line
     df = df.drop(index=0).reset_index(drop=True)
     # Parse datetime
@@ -543,6 +707,11 @@ def calculate_fluxes_2023():
         print(f"  CH4 saturation: {ch4_sat_pct:.1f} %")
         print(f"  Temperature: {temp_C:.2f} °C")
         print(f"  Salinity: {salinity_psu:.2f} PSU")
+        
+        # Skip if depth is too deep (>5m) - not representative of air-sea interface
+        if depth > 5.0:
+            print(f"  ⚠ Depth ({depth:.2f} m) exceeds 5m threshold - skipping station")
+            continue
         
         # Skip if CH4 data is missing
         if pd.isna(ch4_nM) or pd.isna(temp_C) or pd.isna(salinity_psu):
@@ -655,6 +824,11 @@ def calculate_fluxes_2024():
         print(f"  Temperature: {temp_C:.2f} °C")
         print(f"  Salinity: {salinity_psu:.2f} PSU")
         
+        # Skip if depth is too deep (>5m) - not representative of air-sea interface
+        if depth > 5.0:
+            print(f"  ⚠ Depth ({depth:.2f} m) exceeds 5m threshold - skipping station")
+            continue
+        
         # Skip if CH4 data is missing
         if pd.isna(ch4_nM) or pd.isna(temp_C) or pd.isna(salinity_psu):
             print("  ⚠ Missing data - skipping station")
@@ -703,7 +877,7 @@ def calculate_fluxes_2024():
             'k_cm_hr': k,
             'C_sat_nM': C_sat,
             'Delta_C_nM': delta_C,
-            'Flux_umol_m2_day': flux,
+            'Flux_umol_m2_day': flux.astype(float),
             'N_wind_records': n_records
         })
     
