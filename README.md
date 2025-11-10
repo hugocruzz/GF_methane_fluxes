@@ -67,23 +67,34 @@ For each sampling station, surface water measurements were selected using the **
 
 ### 2.2 Wind Speed Averaging
 
-Wind speed data were temporally matched to each water sampling event:
-- **Averaging window**: 24 hours preceding each station sampling time
-- **Rationale**: The gas transfer velocity is calculated using the monthly average of the squared hourly wind speed. This accounts for the variability of wind speed and allows us to capture the enhanced impact of high wind speed on air-sea exchange due to the quadratic relationship between gas transfer velocity and wind speed.
-- **Number of records**: Typically 288-289 measurements per station (24 hours × ~12 measurements/hour)
+Wind speed data were temporally matched to each water sampling event using a monthly averaging window:
+- **Averaging window**: 30 days centered on sampling time (±15 days)
+- **Calculation method**: Mean of squared wind speeds, $\overline{U^{2}}$, not the square of mean wind speed
+- **Rationale**: 
+  - Gas transfer velocity has a quadratic relationship with wind speed: $k \propto U^{2}$
+  - Using $\overline{U^{2}}$ instead of $(\overline{U})^{2}$ properly accounts for wind variability
+  - High wind events (even brief) dominate turbulent mixing and gas exchange
+  - Monthly averaging respects the prevalence of strong winds in air-sea exchange
+- **Number of records**: Typically 4,500-8,600 measurements per station (30 days × ~12 measurements/hour)
 
 ### 2.3 Wind Speed Height Correction
 
-Wind speed was obtained from the meteorological station ATMOS 41 Gen 2 All-in-One weather station (METER group, Pullman, USA) at the Narsaq science center at 6.75m height. The wind speed at 10m height, $U_{10}$, can be calculated using:
+Wind speed was obtained from the meteorological station ATMOS 41 Gen 2 All-in-One weather station (METER group, Pullman, USA) at the Narsaq science center at 6.75m height. 
 
-$$U_{10} = U_{6.75} \times \left(\frac{10}{6.75}\right)^{\alpha}$$
+For the monthly averaging approach using squared wind speeds, the height correction is applied to $\overline{U^{2}}$ rather than $U$:
+
+$$\overline{U_{10}^{2}} = \overline{U_{z}^{2}} \times \left(\frac{10}{z}\right)^{2\alpha}$$
 
 **Equation (3)**
 
 Where:
-- $U_{10}$ = wind speed at 10 m height (m/s)
-- $U_{6.75}$ = measured wind speed at 6.75 m height (m/s)
+- $\overline{U_{10}^{2}}$ = mean of squared wind speeds at 10 m height (m²/s²)
+- $\overline{U_{z}^{2}}$ = mean of squared wind speeds at measurement height $z$ (m²/s²)
+- $z$ = 6.75 m (measurement height)
 - $\alpha$ = 0.20 (power law exponent for relatively rough surface adapted for rural-suburban area)
+- The exponent $2\alpha$ accounts for the squared relationship
+
+**Note**: An equivalent wind speed $U_{\text{equiv}} = \sqrt{\overline{U_{10}^{2}}}$ can be calculated for reference, but the gas transfer calculation uses $\overline{U_{10}^{2}}$ directly.
 
 **Assumptions**:
 - Neutral atmospheric stability
@@ -166,16 +177,18 @@ Where:
 
 The gas transfer velocity ($k$) is calculated based on **(Fay et al., 2021; Ho et al., 2006; Jacobs et al., 1999; Kuss et al., 2004; Nightingale et al., 2000; Wanninkhof, 2014)**:
 
-$$k = a \times U_{10}^{2} \times \left(\frac{Sc}{660}\right)^{-0.5}$$
+$$k = a \times \overline{U_{10}^{2}} \times \left(\frac{Sc}{660}\right)^{-0.5}$$
 
 **Equation (2)**
 
 Where:
 - $k$ = gas transfer velocity (cm/hr)
 - $a$ = coefficient parametrization (0.251 for Wanninkhof, 2014)
-- $U_{10}$ = 10m wind speed (m/s)
+- $\overline{U_{10}^{2}}$ = mean of squared 10m wind speed (m²/s²)
 - $Sc$ = Schmidt number (dimensionless)
 - 660 = reference Schmidt number for CO₂ in seawater at 20°C
+
+**Important**: The formula uses $\overline{U_{10}^{2}}$ (mean of squares) directly, not $U_{10}^{2}$ (square of mean). This properly accounts for wind variability and the quadratic relationship between wind speed and gas transfer.
 
 **Units conversion to m/day**: 
 $$k_{\text{m/day}} = k_{\text{cm/hr}} \times 0.01 \times 24$$
@@ -222,14 +235,15 @@ The volume conversion (L to m³) exactly cancels the unit prefix conversion (nmo
   - `CH4_saturation_pct`: CH₄ saturation percentage (%)
   - `Temperature_C`: Water temperature (°C)
   - `Salinity_PSU`: Salinity (PSU)
-  - `WindSpeed_raw_ms`: Raw measured wind speed (m/s)
-  - `WindSpeed_10m_ms`: Height-corrected wind speed at 10 m (m/s)
+  - `Mean_U_squared_raw_m2s2`: Mean of squared wind speeds at measurement height (m²/s²)
+  - `Mean_U10_squared_m2s2`: Mean of squared wind speeds at 10 m height (m²/s²)
+  - `U_equiv_10m_ms`: Equivalent wind speed at 10 m for reference: $\sqrt{\overline{U_{10}^{2}}}$ (m/s)
   - `Schmidt_number`: Calculated Schmidt number
   - `k_cm_hr`: Gas transfer velocity (cm/hr)
   - `C_sat_nM`: Equilibrium CH₄ concentration (nM)
   - `Delta_C_nM`: Concentration gradient (nM)
   - `Flux_umol_m2_day`: Methane flux (μmol/m²/day)
-  - `N_wind_records`: Number of wind speed records averaged
+  - `N_wind_records`: Number of wind speed records averaged (typically ~8,640 for 30-day window)
 
 **`methane_flux_2024.csv`**
 - Same structure as 2023 file
@@ -296,12 +310,16 @@ For each year (2023 and 2024), the following statistics are reported:
 - Temperature: 5.39°C (278.54 K)
 - Salinity: 24.62 PSU
 - Depth: 2 m
-- Wind speed (24-hr avg): 6.12 m/s at 6.75 m height
+- Mean(U²) over 30 days at 6.75 m: 22.21 m²/s²
 - Atmospheric CH₄: 1995.85 ppb = 1.99585 × 10⁻⁶ atm
 
-**Step 1: Wind speed correction to 10 m**
+**Step 1: Wind speed correction to 10 m (for squared values)**
 
-$$U_{10} = U_{6.75} \times \left(\frac{10}{6.75}\right)^{0.20} = 6.12 \times 1.0817 = 6.62 \text{ m/s}$$
+$$\overline{U_{10}^{2}} = \overline{U_{z}^{2}} \times \left(\frac{10}{6.75}\right)^{2 \times 0.20} = 22.21 \times (1.481)^{0.40} = 22.21 \times 1.170 = 25.99 \text{ m}^{2}\text{/s}^{2}$$
+
+**Equivalent wind speed** (for reference only):
+
+$$U_{\text{equiv}} = \sqrt{25.99} = 5.10 \text{ m/s}$$
 
 **Step 2: Schmidt number**
 
@@ -313,11 +331,13 @@ $$Sc = 1371.4 \times (1 + 0.0085 \times 24.62) = 1371.4 \times 1.209 = 1658.7$$
 
 **Step 3: Gas transfer velocity**
 
-$$k_{660} = 0.251 \times (6.62)^{2} = 0.251 \times 43.8 = 11.0 \text{ cm/hr}$$
+$$k_{660} = 0.251 \times 25.99 = 6.52 \text{ cm/hr}$$
 
-$$k = 11.0 \times \left(\frac{1658.7}{660}\right)^{-0.5} = 11.0 \times 0.629 = 6.61 \text{ cm/hr}$$
+Note: We use $\overline{U_{10}^{2}}$ directly, not $U_{\text{equiv}}^{2}$
 
-$$k = 6.61 \times 0.01 \times 24 = 1.59 \text{ m/day}$$
+$$k = 6.52 \times \left(\frac{1658.7}{660}\right)^{-0.5} = 6.52 \times 0.629 = 4.10 \text{ cm/hr}$$
+
+$$k = 4.10 \times 0.01 \times 24 = 0.98 \text{ m/day}$$
 
 **Step 4: Henry's law constant**
 
@@ -332,18 +352,20 @@ $$K_{H} = \frac{e^{-3.22} \times 1000}{22414} = \frac{40.0 \times 1000}{22414} =
 
 **Step 5: Equilibrium concentration**
 
-$$\text{CH}_{4,\text{equ}} = 1.78 \times 10^{-3} \times 1.99585 \times 10^{-6} \times 10^{9} = 3.55 \text{ nM}$$
+$$\text{CH}_{4,\text{equ}} = 1.78 \times 10^{-3} \times 1.99585 \times 10^{-6} \times 10^{9} = 3.68 \text{ nM}$$
 
-**Measured saturation**: 5.89 / 3.55 = 166% (supersaturated)
+**Measured saturation**: 5.89 / 3.68 = 160% (supersaturated)
 
 **Step 6: Concentration gradient**
 
-$$\Delta C = 5.89 - 3.55 = 2.34 \text{ nM}$$
+$$\Delta C = 5.89 - 3.68 = 2.21 \text{ nM}$$
 
 **Step 7: Methane flux**
 
-$$F = k \times \Delta C = 1.59 \text{ m/day} \times 2.34 \text{ nM}$$
+$$F = k \times \Delta C = 0.98 \text{ m/day} \times 2.21 \text{ nM}$$
 
-$$F = 1.59 \times 2.34 = 3.72 \text{ μmol/m²/day}$$
+$$F = 0.98 \times 2.21 = 2.17 \text{ μmol/m²/day}$$
+
+**Note**: This value differs from previous calculations using 24-hour averages because the monthly mean(U²) approach properly accounts for wind variability over a longer time period.
 
 **Result**: Station 2 shows supersaturated conditions (166%) with a positive flux of **3.72 μmol/m²/day**, indicating CH₄ emission from water to atmosphere. This relatively high flux is driven by moderate supersaturation combined with strong wind conditions (6.6 m/s at 10 m).

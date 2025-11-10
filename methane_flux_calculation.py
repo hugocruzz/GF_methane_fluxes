@@ -139,14 +139,15 @@ def wind_speed_correction(u_measured, z_measured=6.75, z_target=10.0, alpha=0.20
     return u_10
 
 
-def gas_transfer_velocity_wanninkhof(u10, Sc, method='wanninkhof2014'):
+def gas_transfer_velocity_wanninkhof(u10_squared, Sc, method='wanninkhof2014'):
     """
     Calculate gas transfer velocity using Wanninkhof relationships.
     
     Parameters:
     -----------
-    u10 : float or array
-        Wind speed at 10m height (m/s)
+    u10_squared : float or array
+        Mean of squared wind speed at 10m height (m²/s²)
+        This should be mean(U₁₀²) not mean(U₁₀)²
     Sc : float or array
         Schmidt number (dimensionless)
     method : str
@@ -161,19 +162,26 @@ def gas_transfer_velocity_wanninkhof(u10, Sc, method='wanninkhof2014'):
     ----------
     Wanninkhof, R. (2014). Relationship between wind speed and gas exchange 
     over the ocean revisited. Limnology and Oceanography: Methods, 12(6), 351-362.
+    
+    Notes:
+    ------
+    Using mean(U²) instead of mean(U)² accounts for the enhanced impact of
+    high wind speed events on air-sea gas exchange.
     """
     if method == 'wanninkhof2014':
-        # k660 = 0.251 * u10^2 * (Sc/660)^-0.5  [cm/hr]
-        k660 = 0.251 * u10**2
+        # k660 = 0.251 * mean(U10²) * (Sc/660)^-0.5  [cm/hr]
+        k660 = 0.251 * u10_squared
     elif method == 'wanninkhof1992':
-        # k660 = 0.31 * u10^2 * (Sc/660)^-0.5  [cm/hr]
-        k660 = 0.31 * u10**2
+        # k660 = 0.31 * mean(U10²) * (Sc/660)^-0.5  [cm/hr]
+        k660 = 0.31 * u10_squared
     else:
         raise ValueError("Method must be 'wanninkhof2014' or 'wanninkhof1992'")
     
     # Normalize to actual Schmidt number
     k = k660 * (Sc / SC_660)**(-0.5)
     
+    return k
+
     return k
 
 
@@ -275,7 +283,7 @@ def calculate_ch4_saturation_concentration(temperature_celsius, salinity_psu, at
     return C_sat_nM
 
 def calculate_methane_flux(C_water_nM, temperature_celsius, salinity_psu, 
-                          u10_ms, atm_ch4_atm, atm_ch4_ppb):
+                          u10_squared_m2s2, atm_ch4_atm, atm_ch4_ppb):
     """
     Calculate methane flux from water to atmosphere.
     
@@ -287,8 +295,9 @@ def calculate_methane_flux(C_water_nM, temperature_celsius, salinity_psu,
         Water temperature (°C)
     salinity_psu : float or array
         Salinity (PSU)
-    u10_ms : float or array
-        Wind speed at 10m (m/s)
+    u10_squared_m2s2 : float or array
+        Mean of squared wind speed at 10m (m²/s²)
+        Note: This is mean(U₁₀²), not [mean(U₁₀)]²
     atm_ch4_atm : float
         Atmospheric CH4 partial pressure (atm)
     atm_ch4_ppb : float
@@ -322,7 +331,7 @@ def calculate_methane_flux(C_water_nM, temperature_celsius, salinity_psu,
     Sc = schmidt_number(temperature_celsius, salinity_psu)
     
     # Calculate gas transfer velocity (cm/hr)
-    k_cm_hr = gas_transfer_velocity_wanninkhof(u10_ms, Sc)
+    k_cm_hr = gas_transfer_velocity_wanninkhof(u10_squared_m2s2, Sc)
     
     # Convert k to m/day: (cm/hr) * (1 m/100 cm) * (24 hr/day)
     k_m_day = k_cm_hr * 0.01 * 24
@@ -504,6 +513,16 @@ def load_gf2024_data(filepath):
     # Filter for minimum depth at each station (closest to 2m)
     df_surface = df.loc[df.groupby('Station')['depth '].idxmin()]
     
+    # Replace invalid salinity values (-999 or negative) with mean of valid surface values
+    valid_salinity_mask = (df_surface['Salinity'] > 0) & (df_surface['Salinity'] < 40)
+    if valid_salinity_mask.sum() > 0:
+        mean_salinity = df_surface.loc[valid_salinity_mask, 'Salinity'].mean()
+        invalid_salinity_mask = ~valid_salinity_mask
+        if invalid_salinity_mask.sum() > 0:
+            print(f"\n⚠ Warning: {invalid_salinity_mask.sum()} station(s) have invalid salinity values")
+            print(f"  Replacing with mean surface salinity: {mean_salinity:.2f} PSU")
+            df_surface.loc[invalid_salinity_mask, 'Salinity'] = mean_salinity
+    
     print(f"\nTotal stations: {len(df_surface)}")
     print(f"Date range: {df_surface['datetime'].min()} to {df_surface['datetime'].max()}")
     print(f"\nSurface depths (m): {df_surface['depth '].values}")
@@ -632,10 +651,13 @@ def load_weather_forel_2024(filepath):
     return df
 
 
-def match_wind_speed(station_datetime, weather_df, window_hours=24):
+def match_wind_speed(station_datetime, weather_df, window_days=30):
     """
     Match station sampling time with weather station wind speed.
-    Uses average wind speed over a specified time window before sampling.
+    Calculates the mean of squared wind speeds over a monthly window around sampling.
+    
+    This method respects the prevalence of high wind speeds in air-sea exchange
+    by computing: mean(U²) rather than mean(U)²
     
     Parameters:
     -----------
@@ -643,26 +665,38 @@ def match_wind_speed(station_datetime, weather_df, window_hours=24):
         Station sampling datetime
     weather_df : DataFrame
         Weather station data
-    window_hours : float
-        Time window for averaging (hours before sampling)
+    window_days : float
+        Time window for averaging (days around sampling, ±window_days/2)
+        Default: 30 days (±15 days around sampling)
         
     Returns:
     --------
-    wind_speed : float
-        Average wind speed (m/s)
+    mean_u_squared : float
+        Mean of squared wind speeds (m²/s²)
     n_records : int
         Number of weather records used in average
+        
+    Notes:
+    ------
+    The gas transfer velocity k is calculated as:
+    k = a × mean(U²) × (Sc/660)^(-0.5)
+    
+    This approach accounts for the enhanced impact of high wind speeds due to
+    the quadratic relationship between gas transfer and wind speed.
     """
-    # Define time window
-    end_time = station_datetime
-    start_time = station_datetime - timedelta(hours=window_hours)
+    # Define time window: ±15 days around sampling
+    half_window = timedelta(days=window_days/2)
+    start_time = station_datetime - half_window
+    end_time = station_datetime + half_window
     
     # Filter weather data within window
     mask = (weather_df['datetime'] >= start_time) & (weather_df['datetime'] <= end_time)
     wind_data = weather_df.loc[mask, ' m/s Wind Speed']
     
     if len(wind_data) > 0:
-        return wind_data.mean(), len(wind_data)
+        # Calculate mean of squared wind speeds
+        mean_u_squared = (wind_data ** 2).mean()
+        return mean_u_squared, len(wind_data)
     else:
         return np.nan, 0
 
@@ -718,23 +752,29 @@ def calculate_fluxes_2023():
             print("  ⚠ Missing data - skipping station")
             continue
         
-        # Match wind speed (24-hour average before sampling)
-        wind_speed_raw, n_records = match_wind_speed(datetime_sample, weather_2023, window_hours=24)
+        # Match wind speed (monthly average of squared wind speeds around sampling)
+        mean_u_squared_raw, n_records = match_wind_speed(datetime_sample, weather_2023, window_days=30)
         
-        if pd.isna(wind_speed_raw) or n_records == 0:
+        if pd.isna(mean_u_squared_raw) or n_records == 0:
             print(f"  ⚠ No wind speed data available - skipping station")
             continue
         
-        print(f"  Wind speed (raw, ~6.75m height Narsaq): {wind_speed_raw:.2f} m/s (avg of {n_records} records)")
+        # Calculate equivalent wind speed for display
+        u_equiv_raw = np.sqrt(mean_u_squared_raw)
+        print(f"  Mean(U²) at ~6.75m: {mean_u_squared_raw:.2f} m²/s² (√mean(U²) = {u_equiv_raw:.2f} m/s)")
+        print(f"  Based on {n_records} records over ±15 days")
         
-        # Correct wind speed to 10m height using power law (alpha=0.20)
-        wind_speed_10m = wind_speed_correction(wind_speed_raw, z_measured=6.75, z_target=10.0, alpha=0.20)
-        print(f"  Wind speed (corrected to 10m): {wind_speed_10m:.2f} m/s")
+        # Correct wind speed squared to 10m height using power law (alpha=0.20)
+        # mean(U10²) = mean(U_z²) × (10/z)^(2α)
+        correction_factor = (10.0 / 6.75) ** (2 * 0.20)
+        mean_u10_squared = mean_u_squared_raw * correction_factor
+        u_equiv_10m = np.sqrt(mean_u10_squared)
+        print(f"  Mean(U10²) corrected to 10m: {mean_u10_squared:.2f} m²/s² (√mean(U10²) = {u_equiv_10m:.2f} m/s)")
         print(f"  Atmospheric CH4: {ATM_CH4_2023_PPB:.2f} ppb")
         
-        # Calculate flux
+        # Calculate flux using mean(U10²)
         flux, C_sat, delta_C, k, Sc, atm_ch4_output = calculate_methane_flux(
-            ch4_nM, temp_C, salinity_psu, wind_speed_10m, ATM_CH4_2023_ATM, ATM_CH4_2023_PPB
+            ch4_nM, temp_C, salinity_psu, mean_u10_squared, ATM_CH4_2023_ATM, ATM_CH4_2023_PPB
         )
         
         print(f"\n  FLUX CALCULATION RESULTS:")
@@ -755,8 +795,9 @@ def calculate_fluxes_2023():
             'CH4_air_ppb': atm_ch4_output,
             'Temperature_C': temp_C,
             'Salinity_PSU': salinity_psu,
-            'WindSpeed_raw_ms': wind_speed_raw,
-            'WindSpeed_10m_ms': wind_speed_10m,
+            'Mean_U_squared_raw_m2s2': mean_u_squared_raw,
+            'Mean_U10_squared_m2s2': mean_u10_squared,
+            'U_equiv_10m_ms': u_equiv_10m,
             'Schmidt_number': Sc,
             'k_cm_hr': k,
             'C_sat_nM': C_sat,
@@ -834,23 +875,29 @@ def calculate_fluxes_2024():
             print("  ⚠ Missing data - skipping station")
             continue
         
-        # Match wind speed (24-hour average before sampling)
-        wind_speed_raw, n_records = match_wind_speed(datetime_sample, weather_2024, window_hours=24)
+        # Match wind speed (monthly average of squared wind speeds around sampling)
+        mean_u_squared_raw, n_records = match_wind_speed(datetime_sample, weather_2024, window_days=30)
         
-        if pd.isna(wind_speed_raw) or n_records == 0:
+        if pd.isna(mean_u_squared_raw) or n_records == 0:
             print(f"  ⚠ No wind speed data available - skipping station")
             continue
         
-        print(f"  Wind speed (raw, ~6.75m height Narsaq): {wind_speed_raw:.2f} m/s (avg of {n_records} records)")
+        # Calculate equivalent wind speed for display
+        u_equiv_raw = np.sqrt(mean_u_squared_raw)
+        print(f"  Mean(U²) at ~6.75m: {mean_u_squared_raw:.2f} m²/s² (√mean(U²) = {u_equiv_raw:.2f} m/s)")
+        print(f"  Based on {n_records} records over ±15 days")
         
-        # Correct wind speed to 10m height using power law (alpha=0.20)
-        wind_speed_10m = wind_speed_correction(wind_speed_raw, z_measured=6.75, z_target=10.0, alpha=0.20)
-        print(f"  Wind speed (corrected to 10m): {wind_speed_10m:.2f} m/s")
+        # Correct wind speed squared to 10m height using power law (alpha=0.20)
+        # mean(U10²) = mean(U_z²) × (10/z)^(2α)
+        correction_factor = (10.0 / 6.75) ** (2 * 0.20)
+        mean_u10_squared = mean_u_squared_raw * correction_factor
+        u_equiv_10m = np.sqrt(mean_u10_squared)
+        print(f"  Mean(U10²) corrected to 10m: {mean_u10_squared:.2f} m²/s² (√mean(U10²) = {u_equiv_10m:.2f} m/s)")
         print(f"  Atmospheric CH4: {ATM_CH4_2024_PPB:.2f} ppb")
         
-        # Calculate flux
+        # Calculate flux using mean(U10²)
         flux, C_sat, delta_C, k, Sc, atm_ch4_output = calculate_methane_flux(
-            ch4_nM, temp_C, salinity_psu, wind_speed_10m, ATM_CH4_2024_ATM, ATM_CH4_2024_PPB
+            ch4_nM, temp_C, salinity_psu, mean_u10_squared, ATM_CH4_2024_ATM, ATM_CH4_2024_PPB
         )
         
         print(f"\n  FLUX CALCULATION RESULTS:")
@@ -871,8 +918,9 @@ def calculate_fluxes_2024():
             'CH4_air_ppb': atm_ch4_output,
             'Temperature_C': temp_C,
             'Salinity_PSU': salinity_psu,
-            'WindSpeed_raw_ms': wind_speed_raw,
-            'WindSpeed_10m_ms': wind_speed_10m,
+            'Mean_U_squared_raw_m2s2': mean_u_squared_raw,
+            'Mean_U10_squared_m2s2': mean_u10_squared,
+            'U_equiv_10m_ms': u_equiv_10m,
             'Schmidt_number': Sc,
             'k_cm_hr': k,
             'C_sat_nM': C_sat,
